@@ -1,7 +1,7 @@
 import { InputNumber, Table, Tag, Tooltip, Typography, type TableProps } from 'antd';
 import { WarningOutlined } from '@ant-design/icons';
 import { diameterClassLabel } from '../../utils/forestCalc';
-import { isDbhAbnormal, type TreeRecord } from '../../types/tree';
+import { isDbhAbnormal, isTreeMeasured, type TreeRecord } from '../../types/tree';
 
 export interface TreeTableProps {
   /** 本期样木 */
@@ -10,6 +10,8 @@ export interface TreeTableProps {
   peers?: TreeRecord[];
   /** 行内改胸径 */
   onDbhChange?: (id: string, dbhCm: number) => void;
+  /** 行内改树高 */
+  onHeightChange?: (id: string, heightM: number) => void;
   /** 是否展示径阶分组统计 */
   showClassSummary?: boolean;
   emptyText?: string;
@@ -17,11 +19,12 @@ export interface TreeTableProps {
 
 type Columns = NonNullable<TableProps<TreeRecord>['columns']>;
 
-/** 样木表格：径阶分组、行内编辑胸径、胸径异常值提示 */
+/** 样木表格：径阶分组、行内编辑胸径/树高、胸径异常值与待补测提示 */
 export default function TreeTable({
   items,
   peers,
   onDbhChange,
+  onHeightChange,
   showClassSummary = true,
   emptyText = '暂无样木记录',
 }: TreeTableProps) {
@@ -40,7 +43,10 @@ export default function TreeTable({
     {
       title: '径阶 cm',
       width: 110,
-      render: (_: unknown, row: TreeRecord) => <Tag color="green">{diameterClassLabel(row.dbhCm)}</Tag>,
+      render: (_: unknown, row: TreeRecord) => {
+        const label = diameterClassLabel(row.dbhCm);
+        return <Tag color={label === '未测' ? 'orange' : 'green'}>{label}</Tag>;
+      },
     },
     {
       title: '胸径 cm',
@@ -56,10 +62,13 @@ export default function TreeTable({
                 max={200}
                 step={0.1}
                 value={row.dbhCm}
+                placeholder="未测"
                 status={abnormal ? 'warning' : undefined}
                 onChange={(v) => onDbhChange(row.id, Number(v ?? 0))}
                 style={{ width: 96 }}
               />
+            ) : row.dbhCm === undefined ? (
+              <Tag color="orange">未测</Tag>
             ) : (
               row.dbhCm
             )}
@@ -72,7 +81,27 @@ export default function TreeTable({
         );
       },
     },
-    { title: '树高 m', dataIndex: 'heightM', width: 90 },
+    {
+      title: '树高 m',
+      width: 130,
+      render: (_: unknown, row: TreeRecord) =>
+        onHeightChange ? (
+          <InputNumber
+            size="small"
+            min={0}
+            max={60}
+            step={0.1}
+            value={row.heightM}
+            placeholder="未测"
+            onChange={(v) => onHeightChange(row.id, Number(v ?? 0))}
+            style={{ width: 90 }}
+          />
+        ) : row.heightM === undefined ? (
+          <Tag color="orange">未测</Tag>
+        ) : (
+          row.heightM
+        ),
+    },
     { title: '枝下高 m', dataIndex: 'underBranchH', width: 100 },
     { title: '冠幅 m', dataIndex: 'crownWidth', width: 90 },
     {
@@ -125,7 +154,13 @@ export default function TreeTable({
         pagination={false}
         scroll={{ x: 1300 }}
         locale={{ emptyText }}
-        rowClassName={(row) => (isDbhAbnormal(row, reference) ? 'tree-row-abnormal' : '')}
+        rowClassName={(row) =>
+          isDbhAbnormal(row, reference)
+            ? 'tree-row-abnormal'
+            : !isTreeMeasured(row)
+              ? 'tree-row-unmeasured'
+              : ''
+        }
       />
     </div>
   );

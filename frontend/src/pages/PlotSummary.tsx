@@ -22,7 +22,7 @@ import { useTreeStats } from '../hooks/useTreeStats';
 import RoundTag from '../components/common/RoundTag';
 import PlotCard from '../components/common/PlotCard';
 import { canopyFromCrown, formHeight, heightClassStats } from '../utils/forestCalc';
-import type { TreeRecord } from '../types/tree';
+import { isTreeMeasured, type TreeRecord } from '../types/tree';
 
 type Columns = NonNullable<TableProps<TreeRecord>['columns']>;
 
@@ -58,12 +58,12 @@ export default function PlotSummary() {
   const speciesRows = useMemo(() => {
     const map = new Map<string, { species: string; count: number; dbh: number; height: number }>();
     stats.trees
-      .filter((t) => t.status === '活立木')
+      .filter((t) => t.status === '活立木' && isTreeMeasured(t))
       .forEach((t) => {
         const row = map.get(t.species) ?? { species: t.species, count: 0, dbh: 0, height: 0 };
         row.count += 1;
-        row.dbh += t.dbhCm;
-        row.height += t.heightM;
+        row.dbh += t.dbhCm ?? 0;
+        row.height += t.heightM ?? 0;
         map.set(t.species, row);
       });
     return Array.from(map.values()).map((r) => ({
@@ -104,6 +104,9 @@ export default function PlotSummary() {
     lines.push(`平均胸径：${stats.meanDbh} cm`);
     lines.push(`平均树高：${stats.meanHeight} m`);
     lines.push(`断面积合计：${stats.basalArea} m²（${stats.basalAreaPerHa} m²/hm²）`);
+    if (stats.unmeasuredCount > 0) {
+      lines.push(`待补测活立木：${stats.unmeasuredCount} 株（未计入上述汇总）`);
+    }
     lines.push(`郁闭度（录入）：${plot.canopyDensity}；按冠幅折算：${canopyFromCrown(stats.trees, plot)}`);
     lines.push(`更新苗密度：${stats.regenPerHa} 株/hm²；灌木密度：${stats.shrubPerHa} 株/hm²`);
     lines.push('');
@@ -149,6 +152,18 @@ export default function PlotSummary() {
       </Space>
 
       {toast ? <Alert type="success" showIcon message={toast} closable onClose={() => setToast('')} /> : null}
+      {stats.unmeasuredCount > 0 ? (
+        <Alert
+          type="warning"
+          showIcon
+          message={`本期还有 ${stats.unmeasuredCount} 株活立木未补测胸径/树高，暂未计入林分汇总`}
+          description={
+            <span>
+              请到 <Link to={`/plots/${plot.id}/trees`}>样木录入</Link> 逐株补测，补测后自动计入每公顷株数、平均胸径与断面积等汇总指标。
+            </span>
+          }
+        />
+      ) : null}
 
       <Row gutter={12}>
         <Col span={8}>
@@ -216,8 +231,9 @@ export default function PlotSummary() {
               </Tag>
             ))}
           </div>
-          <Descriptions size="small" column={3}>
+          <Descriptions size="small" column={4}>
             <Descriptions.Item label="活立木">{stats.aliveCount} 株</Descriptions.Item>
+            <Descriptions.Item label="待补测">{stats.unmeasuredCount} 株</Descriptions.Item>
             <Descriptions.Item label="样木记录">{stats.count} 条</Descriptions.Item>
             <Descriptions.Item label="样方记录">{plotRegens.length} 条</Descriptions.Item>
           </Descriptions>

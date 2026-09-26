@@ -18,11 +18,12 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, RightCircleOutlined } from '@ant-design/icons';
 import { usePlotStore } from '../stores/plotStore';
 import { useTreeStore } from '../stores/treeStore';
 import { useRegenStore } from '../stores/regenStore';
 import { usePlotFilter } from '../hooks/usePlotFilter';
+import { useStartNextRound } from '../hooks/useNextRound';
 import PlotCard from '../components/common/PlotCard';
 import { FOREST_TYPES, PLOT_SHAPES, type PlotDraft, type PlotShape } from '../types/plot';
 
@@ -54,10 +55,12 @@ export default function PlotList() {
   const trees = useTreeStore((s) => s.items);
   const regens = useRegenStore((s) => s.items);
   const { filters, patch, reset, result, options } = usePlotFilter();
+  const startNextRound = useStartNextRound();
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<PlotDraft>(EMPTY);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [toast, setToast] = useState('');
 
   useEffect(() => {
@@ -107,6 +110,9 @@ export default function PlotList() {
       </Space>
 
       {toast ? <Alert type="success" showIcon message={toast} closable onClose={() => setToast('')} /> : null}
+      {actionError ? (
+        <Alert type="warning" showIcon message={actionError} closable onClose={() => setActionError('')} />
+      ) : null}
 
       <Row gutter={12}>
         <Col span={6}>
@@ -215,6 +221,19 @@ export default function PlotList() {
                     </Button>
                     <Button size="small" type="link" onClick={() => navigate(`/summary/${plot.id}`)}>
                       林分汇总
+                    </Button>
+                    <Button
+                      size="small"
+                      type="link"
+                      icon={<RightCircleOutlined />}
+                      onClick={() =>
+                        startNextRound(plot, (ok, message) => {
+                          if (ok) setToast(message);
+                          else setActionError(message);
+                        })
+                      }
+                    >
+                      开始下一期
                     </Button>
                     <Button size="small" danger={!plot.locked} onClick={() => toggleLock(plot.id)}>
                       {plot.locked ? '解锁往期' : '锁定往期'}

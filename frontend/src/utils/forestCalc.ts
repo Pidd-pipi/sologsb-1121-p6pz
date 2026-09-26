@@ -1,22 +1,23 @@
 import type { Plot } from '../types/plot';
 import type { RegenShrub } from '../types/regen';
-import type { TreeRecord } from '../types/tree';
+import { isTreeMeasured, type TreeRecord } from '../types/tree';
 
 export function round(value: number, digits = 2): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
 }
 
-/** 单株断面积 m²（按胸径 cm） */
-export function basalArea(dbhCm: number): number {
+/** 单株断面积 m²（按胸径 cm，未测按 0 计） */
+export function basalArea(dbhCm?: number): number {
+  if (!dbhCm || dbhCm <= 0) return 0;
   const r = dbhCm / 100 / 2;
   return Math.PI * r * r;
 }
 
-/** 样地断面积合计 m² */
+/** 样地断面积合计 m²（只计已补测的活立木） */
 export function totalBasalArea(trees: TreeRecord[]): number {
   return round(
-    trees.reduce((sum, t) => sum + (t.status === '活立木' ? basalArea(t.dbhCm) : 0), 0),
+    trees.reduce((sum, t) => sum + (t.status === '活立木' && isTreeMeasured(t) ? basalArea(t.dbhCm) : 0), 0),
     4,
   );
 }
@@ -33,18 +34,18 @@ export function basalAreaPerHectare(trees: TreeRecord[], areaM2: number): number
   return round((totalBasalArea(trees) / areaM2) * 10000, 3);
 }
 
-/** 平均胸径 cm（只计活立木） */
+/** 平均胸径 cm（只计已补测的活立木） */
 export function avgDbh(trees: TreeRecord[]): number {
-  const alive = trees.filter((t) => t.status === '活立木');
+  const alive = trees.filter((t) => t.status === '活立木' && isTreeMeasured(t));
   if (alive.length === 0) return 0;
-  return round(alive.reduce((s, t) => s + t.dbhCm, 0) / alive.length, 2);
+  return round(alive.reduce((s, t) => s + (t.dbhCm ?? 0), 0) / alive.length, 2);
 }
 
-/** 平均树高 m */
+/** 平均树高 m（只计已补测的活立木） */
 export function avgHeight(trees: TreeRecord[]): number {
-  const alive = trees.filter((t) => t.status === '活立木');
+  const alive = trees.filter((t) => t.status === '活立木' && isTreeMeasured(t));
   if (alive.length === 0) return 0;
-  return round(alive.reduce((s, t) => s + t.heightM, 0) / alive.length, 2);
+  return round(alive.reduce((s, t) => s + (t.heightM ?? 0), 0) / alive.length, 2);
 }
 
 /** 径阶归组（6/8/12/16/20/24/28/32+，单位 cm） */
@@ -57,17 +58,18 @@ export function diameterClass(dbhCm: number): number {
   return 32;
 }
 
-export function diameterClassLabel(dbhCm: number): string {
+export function diameterClassLabel(dbhCm?: number): string {
+  if (dbhCm === undefined || !Number.isFinite(dbhCm)) return '未测';
   const c = diameterClass(dbhCm);
   return c >= 32 ? '32+' : `${c - 2}~${c + 2}`;
 }
 
-/** 径阶分布 */
+/** 径阶分布（只计已补测的活立木） */
 export function diameterDistribution(trees: TreeRecord[]): { label: string; count: number }[] {
   const map = new Map<string, number>();
   DIAMETER_CLASSES.forEach((c) => map.set(c >= 32 ? '32+' : `${c - 2}~${c + 2}`, 0));
   trees
-    .filter((t) => t.status === '活立木')
+    .filter((t) => t.status === '活立木' && isTreeMeasured(t))
     .forEach((t) => {
       const label = diameterClassLabel(t.dbhCm);
       map.set(label, (map.get(label) ?? 0) + 1);
@@ -77,15 +79,15 @@ export function diameterDistribution(trees: TreeRecord[]): { label: string; coun
 
 /** 形高（树高 / 胸径） */
 export function formHeight(tree: TreeRecord): number {
-  if (tree.dbhCm <= 0) return 0;
+  if (!tree.dbhCm || tree.dbhCm <= 0 || !tree.heightM) return 0;
   return round(tree.heightM / (tree.dbhCm / 100), 2);
 }
 
-/** 郁闭度换算：由冠幅合计 / 样地面积，封顶 1 */
+/** 郁闭度换算：由冠幅合计 / 样地面积，封顶 1（只计已补测的活立木） */
 export function canopyFromCrown(trees: TreeRecord[], plot: Plot): number {
   if (plot.area <= 0) return 0;
   const crownArea = trees
-    .filter((t) => t.status === '活立木')
+    .filter((t) => t.status === '活立木' && isTreeMeasured(t))
     .reduce((sum, t) => sum + Math.PI * (t.crownWidth / 2) ** 2, 0);
   return Math.min(1, round(crownArea / plot.area, 3));
 }

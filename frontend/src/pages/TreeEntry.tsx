@@ -16,10 +16,11 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, RightCircleOutlined } from '@ant-design/icons';
 import { usePlotStore } from '../stores/plotStore';
 import { useTreeStore } from '../stores/treeStore';
 import { useTreeStats } from '../hooks/useTreeStats';
+import { useStartNextRound } from '../hooks/useNextRound';
 import TreeTable from '../components/common/TreeTable';
 import RoundTag from '../components/common/RoundTag';
 import {
@@ -49,7 +50,9 @@ export default function TreeEntry() {
   const [round, setRound] = useState(plot?.surveyRound ?? 1);
   useEffect(() => {
     if (plot) setRound(plot.surveyRound);
-  }, [plot?.id]);
+  }, [plot?.id, plot?.surveyRound]);
+
+  const startNextRound = useStartNextRound();
 
   const stats = useTreeStats(id, round);
   const peers = trees.filter((t) => t.plotId === id);
@@ -126,6 +129,17 @@ export default function TreeEntry() {
         <Tag>{plot.forestType}</Tag>
         <Tag color="green">优势树种 {plot.dominantSpecies}</Tag>
         <div style={{ flex: 1 }} />
+        <Button
+          icon={<RightCircleOutlined />}
+          onClick={() =>
+            startNextRound(plot, (ok, message) => {
+              if (ok) setToast(message);
+              else setError(message);
+            })
+          }
+        >
+          开始下一期
+        </Button>
         <Button type="link">
           <Link to={`/plots/${plot.id}/regen`}>更新与灌木</Link>
         </Button>
@@ -166,6 +180,11 @@ export default function TreeEntry() {
           <Typography.Text type="secondary">
             已录 {stats.count} 株（活立木 {stats.aliveCount} 株） · 筛选显示 {rows.length} 株
           </Typography.Text>
+          {stats.unmeasuredCount > 0 ? (
+            <Typography.Text type="warning">
+              待补测 {stats.unmeasuredCount} 株（未计入林分汇总）
+            </Typography.Text>
+          ) : null}
         </Space>
       </Card>
 
@@ -312,13 +331,17 @@ export default function TreeEntry() {
         </Col>
       </Row>
 
-      <Card size="small" title={`第 ${round} 期样木清单（${rows.length} 株，可点胸径单元格直接修改）`}>
+      <Card size="small" title={`第 ${round} 期样木清单（${rows.length} 株，可点胸径/树高单元格直接补测）`}>
         <TreeTable
           items={rows}
           peers={peers}
           onDbhChange={async (treeId, dbhCm) => {
-            await updateTree(treeId, { dbhCm });
+            await updateTree(treeId, { dbhCm, measuredAt: Date.now() });
             setToast('胸径已更新，径阶与断面积同步重算');
+          }}
+          onHeightChange={async (treeId, heightM) => {
+            await updateTree(treeId, { heightM, measuredAt: Date.now() });
+            setToast('树高已更新，林分因子同步重算');
           }}
         />
       </Card>

@@ -9,6 +9,11 @@ body {
   background: #fff7e6 !important;
 }
 
+/* 样木表格：待补测行高亮 */
+.tree-row-unmeasured > td {
+  background: #f0f5ff !important;
+}
+
 /* 复查比对表：生长量为负或缺测的行高亮 */
 .diff-row-abnormal > td {
   background: #fff1f0 !important;

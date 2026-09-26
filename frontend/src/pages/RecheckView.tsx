@@ -75,9 +75,15 @@ export default function RecheckView() {
       const dbhGrowth =
         baseDbh !== undefined && targetDbh !== undefined ? r2(targetDbh - baseDbh) : 0;
       const heightGrowth =
-        b && t ? r2(t.heightM - b.heightM) : 0;
+        b?.heightM !== undefined && t?.heightM !== undefined ? r2(t.heightM - b.heightM) : 0;
       const statusChange = b && t && b.status !== t.status ? `${b.status} → ${t.status}` : '';
-      const missingReason = !t ? '本期未复测（疑似采伐或倒伏）' : !b ? '本期新增进界木' : '';
+      const missingReason = !t
+        ? '本期未复测（疑似采伐或倒伏）'
+        : !b
+          ? '本期新增进界木'
+          : t.dbhCm === undefined
+            ? '本期尚未补测'
+            : '';
       return {
         id: newId('diff'),
         plotId: id,

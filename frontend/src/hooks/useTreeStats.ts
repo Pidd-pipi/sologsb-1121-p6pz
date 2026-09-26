@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { usePlotStore } from '../stores/plotStore';
 import { useRegenStore } from '../stores/regenStore';
 import { useTreeStore } from '../stores/treeStore';
+import { isTreeMeasured } from '../types/tree';
 import {
   avgDbh,
   avgHeight,
@@ -16,6 +17,8 @@ export interface TreeStats {
   /** 已录样木株数（本期） */
   count: number;
   aliveCount: number;
+  /** 待补测活立木株数（未计入林分汇总） */
+  unmeasuredCount: number;
   /** 每公顷株数 */
   perHa: number;
   /** 平均胸径 cm */
@@ -52,13 +55,15 @@ export function useTreeStats(plotId: string | undefined, round?: number): TreeSt
       .filter((t) => t.plotId === plotId && t.round === targetRound)
       .sort((a, b) => a.treeNo.localeCompare(b.treeNo, 'zh-Hans-CN', { numeric: true }));
     const alive = trees.filter((t) => t.status === '活立木');
+    const measuredAlive = alive.filter(isTreeMeasured);
     const area = plot?.area ?? 0;
     const plotRegens = regens.filter((r) => r.plotId === plotId && r.round === targetRound);
 
     return {
       count: trees.length,
       aliveCount: alive.length,
-      perHa: perHectareCount(alive.length, area),
+      unmeasuredCount: alive.length - measuredAlive.length,
+      perHa: perHectareCount(measuredAlive.length, area),
       meanDbh: avgDbh(trees),
       meanHeight: avgHeight(trees),
       basalArea: totalBasalArea(trees),

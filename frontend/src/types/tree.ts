@@ -20,10 +20,10 @@ export interface TreeRecord {
   /** 树号 */
   treeNo: string;
   species: string;
-  /** 胸径 cm */
-  dbhCm: number;
-  /** 树高 m */
-  heightM: number;
+  /** 胸径 cm（进入新期尚未补测时留空） */
+  dbhCm?: number;
+  /** 树高 m（进入新期尚未补测时留空） */
+  heightM?: number;
   /** 枝下高 m */
   underBranchH: number;
   /** 冠幅 m */
@@ -42,11 +42,26 @@ export interface TreeRecord {
 
 export type TreeRecordDraft = Omit<TreeRecord, 'id' | 'measuredAt'>;
 
-/** 胸径是否异常（相对同树种同径阶偏离过大或数值不合理） */
+/** 是否已补测：胸径与树高均为有效正值，补测后才计入林分汇总 */
+export function isTreeMeasured(tree: TreeRecord): boolean {
+  return (
+    typeof tree.dbhCm === 'number' &&
+    Number.isFinite(tree.dbhCm) &&
+    tree.dbhCm > 0 &&
+    typeof tree.heightM === 'number' &&
+    Number.isFinite(tree.heightM) &&
+    tree.heightM > 0
+  );
+}
+
+/** 胸径是否异常（相对同树种同径阶偏离过大或数值不合理）；未补测的样木不参与判断 */
 export function isDbhAbnormal(tree: TreeRecord, peers: TreeRecord[]): boolean {
+  if (tree.dbhCm === undefined) return false;
   if (!Number.isFinite(tree.dbhCm) || tree.dbhCm <= 0 || tree.dbhCm > 200) return true;
-  const sameSpecies = peers.filter((p) => p.species === tree.species && p.round === tree.round);
+  const sameSpecies = peers.filter(
+    (p) => p.species === tree.species && p.round === tree.round && p.dbhCm !== undefined,
+  );
   if (sameSpecies.length < 3) return false;
-  const avg = sameSpecies.reduce((s, p) => s + p.dbhCm, 0) / sameSpecies.length;
+  const avg = sameSpecies.reduce((s, p) => s + (p.dbhCm ?? 0), 0) / sameSpecies.length;
   return Math.abs(tree.dbhCm - avg) / avg > 0.6;
 }
