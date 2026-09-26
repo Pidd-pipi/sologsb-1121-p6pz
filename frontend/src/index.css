@@ -9,6 +9,11 @@ body {
   background: #fff7e6 !important;
 }
 
+/* 样木表格：带入新期、尚未补测的行浅蓝提示 */
+.tree-row-pending > td {
+  background: #e6f4ff !important;
+}
+
 /* 复查比对表：生长量为负或缺测的行高亮 */
 .diff-row-abnormal > td {
   background: #fff1f0 !important;

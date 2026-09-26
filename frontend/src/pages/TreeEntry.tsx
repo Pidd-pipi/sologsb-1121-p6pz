@@ -8,20 +8,21 @@ import {
   Col,
   Input,
   InputNumber,
+  Popconfirm,
   Row,
-  Segmented,
   Select,
   Space,
   Statistic,
   Tag,
   Typography,
 } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, StepForwardOutlined } from '@ant-design/icons';
 import { usePlotStore } from '../stores/plotStore';
 import { useTreeStore } from '../stores/treeStore';
 import { useTreeStats } from '../hooks/useTreeStats';
 import TreeTable from '../components/common/TreeTable';
 import RoundTag from '../components/common/RoundTag';
+import { startNextRound } from '../utils/db';
 import {
   HEALTH_CLASSES,
   TREE_ORIGINS,
@@ -41,6 +42,8 @@ export default function TreeEntry() {
   const trees = useTreeStore((s) => s.items);
   const addTree = useTreeStore((s) => s.add);
   const updateTree = useTreeStore((s) => s.update);
+  const reloadTrees = useTreeStore((s) => s.load);
+  const reloadPlots = usePlotStore((s) => s.load);
 
   const rounds = useMemo(
     () => Array.from(new Set(trees.filter((t) => t.plotId === id).map((t) => t.round))).sort((a, b) => a - b),
@@ -53,6 +56,19 @@ export default function TreeEntry() {
 
   const stats = useTreeStats(id, round);
   const peers = trees.filter((t) => t.plotId === id);
+  /** 当前查看的期次是否已有更高期次（有则不能再从任一期开新期） */
+  const hasHigherRound = useMemo(
+    () => (plot ? trees.some((t) => t.plotId === id && t.round > plot.surveyRound) : false),
+    [trees, id, plot?.surveyRound],
+  );
+  /** 当前期（样地复查期）活立木数，决定「开始下一期」是否可用 */
+  const currentAliveCount = useMemo(
+    () =>
+      plot
+        ? trees.filter((t) => t.plotId === id && t.round === plot.surveyRound && t.status === '活立木').length
+        : 0,
+    [trees, id, plot?.surveyRound],
+  );
 
   const [speciesFilter, setSpeciesFilter] = useState('all');
   const [form, setForm] = useState<TreeRecordDraft>({
@@ -72,6 +88,7 @@ export default function TreeEntry() {
   });
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
+  const [starting, setStarting] = useState(false);
 
   useEffect(() => {
     setForm((prev) => ({ ...prev, plotId: id, round }));
@@ -103,8 +120,27 @@ export default function TreeEntry() {
     }
     await addTree({ ...form, treeNo: form.treeNo.trim(), species: form.species.trim(), round });
     setError('');
-    setToast(`已录入第 ${round} 期样木 ${form.treeNo.trim()}（${diameterClassLabel(form.dbhCm)} cm 径阶）`);
+    setToast(`已录入第 ${round} 期样木 ${form.treeNo.trim()}（${diameterClassLabel(form.dbhCm ?? 0)} cm 径阶）`);
     setForm({ ...form, treeNo: '', dbhCm: 10, heightM: 8, remark: '' });
+  };
+
+  /** 开始下一复查期：当前期活立木带入新期，胸径树高先留空待补测 */
+  const beginNextRound = async () => {
+    if (!plot) return;
+    setStarting(true);
+    try {
+      const result = await startNextRound(plot.id);
+      if (!result.ok) {
+        setError(result.reason ?? '无法开始下一期');
+        return;
+      }
+      setError('');
+      await Promise.all([reloadTrees(), reloadPlots()]);
+      setRound(result.targetRound);
+      setToast(`已开始第 ${result.targetRound} 期，带入 ${result.carried} 株活立木，请逐株补测胸径与树高`);
+    } finally {
+      setStarting(false);
+    }
   };
 
   if (!plot) {
@@ -164,13 +200,47 @@ export default function TreeEntry() {
             />
           </span>
           <Typography.Text type="secondary">
-            已录 {stats.count} 株（活立木 {stats.aliveCount} 株） · 筛选显示 {rows.length} 株
+            已录 {stats.count} 株（活立木 {stats.aliveCount} 株，已补测 {stats.measuredCount} 株） · 筛选显示{' '}
+            {rows.length} 株
           </Typography.Text>
+          <div style={{ flex: 1 }} />
+          <Popconfirm
+            title={`开始第 ${plot.surveyRound + 1} 期复查`}
+            description={
+              hasHigherRound
+                ? `该样地已存在高于第 ${plot.surveyRound} 期的记录，不能重复开期。`
+                : currentAliveCount === 0
+                  ? `第 ${plot.surveyRound} 期没有活立木，无法带入下一期。`
+                  : `把第 ${plot.surveyRound} 期 ${currentAliveCount} 株活立木带入新期：树号、树种、起源、位置保留，胸径与树高记为「未测」，逐株补测后才计入林分汇总；第 ${plot.surveyRound} 期记录原样保留。`
+            }
+            okText="开始下一期"
+            cancelText="再想想"
+            okButtonProps={{ danger: hasHigherRound || currentAliveCount === 0 }}
+            onConfirm={beginNextRound}
+          >
+            <Button type="primary" ghost icon={<StepForwardOutlined />} loading={starting}>
+              开始下一期（第 {plot.surveyRound + 1} 期）
+            </Button>
+          </Popconfirm>
         </Space>
       </Card>
 
       {toast ? <Alert type="success" showIcon message={toast} closable onClose={() => setToast('')} /> : null}
       {error ? <Alert type="error" showIcon message={error} closable onClose={() => setError('')} /> : null}
+      {hasHigherRound ? (
+        <Alert
+          type="warning"
+          showIcon
+          message={`该样地已有高于第 ${plot.surveyRound} 期的样木记录，请将期次切换到最新一期进行补测；不会重复开新期。`}
+        />
+      ) : null}
+      {stats.pendingCount > 0 ? (
+        <Alert
+          type="info"
+          showIcon
+          message={`第 ${round} 期有 ${stats.pendingCount} 株活立木胸径/树高尚未补测，暂不计入林分汇总；请在下方清单逐株补填（待补测行已置底并浅蓝标注）。`}
+        />
+      ) : null}
 
       <Row gutter={12}>
         <Col span={12}>
@@ -273,7 +343,7 @@ export default function TreeEntry() {
               </Button>
             </Space>
             <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-              当前待录径阶：{diameterClassLabel(form.dbhCm)} cm（按「6/8/12/16/20/24/28/32+」径阶自动归组）
+              当前待录径阶：{diameterClassLabel(form.dbhCm ?? 0)} cm（按「6/8/12/16/20/24/28/32+」径阶自动归组）
             </Typography.Paragraph>
           </Card>
         </Col>
@@ -308,17 +378,31 @@ export default function TreeEntry() {
                 </Tag>
               ))}
             </div>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+              {stats.pendingCount > 0
+                ? `另有待补测活立木 ${stats.pendingCount} 株，胸径/树高补测后才计入上述指标。`
+                : '本期活立木均已补测，指标按全部活立木计算。'}
+            </Typography.Paragraph>
           </Card>
         </Col>
       </Row>
 
-      <Card size="small" title={`第 ${round} 期样木清单（${rows.length} 株，可点胸径单元格直接修改）`}>
+      <Card
+        size="small"
+        title={`第 ${round} 期样木清单（${rows.length} 株，可直接在胸径/树高单元格补测${
+          stats.pendingCount > 0 ? `，待补测 ${stats.pendingCount} 株` : ''
+        }）`}
+      >
         <TreeTable
           items={rows}
           peers={peers}
           onDbhChange={async (treeId, dbhCm) => {
-            await updateTree(treeId, { dbhCm });
-            setToast('胸径已更新，径阶与断面积同步重算');
+            await updateTree(treeId, { dbhCm, measuredAt: Date.now() });
+            setToast(dbhCm === null ? '胸径已清空为未测，该株暂不计入林分汇总' : '胸径已补测，径阶与断面积同步重算');
+          }}
+          onHeightChange={async (treeId, heightM) => {
+            await updateTree(treeId, { heightM, measuredAt: Date.now() });
+            setToast(heightM === null ? '树高已清空为未测，该株暂不计入平均树高' : '树高已补测，平均树高同步重算');
           }}
         />
       </Card>

@@ -22,7 +22,7 @@ import { useTreeStats } from '../hooks/useTreeStats';
 import RoundTag from '../components/common/RoundTag';
 import PlotCard from '../components/common/PlotCard';
 import { canopyFromCrown, formHeight, heightClassStats } from '../utils/forestCalc';
-import type { TreeRecord } from '../types/tree';
+import { isFullyMeasured, type TreeRecord } from '../types/tree';
 
 type Columns = NonNullable<TableProps<TreeRecord>['columns']>;
 
@@ -57,13 +57,15 @@ export default function PlotSummary() {
 
   const speciesRows = useMemo(() => {
     const map = new Map<string, { species: string; count: number; dbh: number; height: number }>();
+    // 仅统计胸径、树高均已补测的活立木，带入未补测株不参与汇总
     stats.trees
       .filter((t) => t.status === '活立木')
+      .filter(isFullyMeasured)
       .forEach((t) => {
         const row = map.get(t.species) ?? { species: t.species, count: 0, dbh: 0, height: 0 };
         row.count += 1;
-        row.dbh += t.dbhCm;
-        row.height += t.heightM;
+        row.dbh += t.dbhCm as number;
+        row.height += t.heightM as number;
         map.set(t.species, row);
       });
     return Array.from(map.values()).map((r) => ({
@@ -106,6 +108,11 @@ export default function PlotSummary() {
     lines.push(`断面积合计：${stats.basalArea} m²（${stats.basalAreaPerHa} m²/hm²）`);
     lines.push(`郁闭度（录入）：${plot.canopyDensity}；按冠幅折算：${canopyFromCrown(stats.trees, plot)}`);
     lines.push(`更新苗密度：${stats.regenPerHa} 株/hm²；灌木密度：${stats.shrubPerHa} 株/hm²`);
+    if (stats.pendingCount > 0) {
+      lines.push(
+        `注：本期活立木 ${stats.aliveCount} 株中尚有 ${stats.pendingCount} 株胸径/树高未补测，未计入上述林分指标，已补测 ${stats.measuredCount} 株。`,
+      );
+    }
     lines.push('');
     lines.push('径阶分布：' + stats.diameterDist.map((d) => `${d.label}cm=${d.count}`).join('，'));
     lines.push('高度级株数：' + heightClassStats(plotRegens).map((h) => `${h.label}=${h.count}`).join('，'));
@@ -149,6 +156,18 @@ export default function PlotSummary() {
       </Space>
 
       {toast ? <Alert type="success" showIcon message={toast} closable onClose={() => setToast('')} /> : null}
+      {stats.pendingCount > 0 ? (
+        <Alert
+          type="info"
+          showIcon
+          message={`本期有 ${stats.pendingCount} 株活立木胸径/树高尚未补测（活立木共 ${stats.aliveCount} 株），以下林分指标仅按已补测的 ${stats.measuredCount} 株计算。`}
+          action={
+            <Button size="small" type="link">
+              <Link to={`/plots/${plot.id}/trees`}>去补测</Link>
+            </Button>
+          }
+        />
+      ) : null}
 
       <Row gutter={12}>
         <Col span={8}>
@@ -217,7 +236,9 @@ export default function PlotSummary() {
             ))}
           </div>
           <Descriptions size="small" column={3}>
-            <Descriptions.Item label="活立木">{stats.aliveCount} 株</Descriptions.Item>
+            <Descriptions.Item label="活立木">
+              {stats.aliveCount} 株{stats.pendingCount > 0 ? `（待补测 ${stats.pendingCount}）` : ''}
+            </Descriptions.Item>
             <Descriptions.Item label="样木记录">{stats.count} 条</Descriptions.Item>
             <Descriptions.Item label="样方记录">{plotRegens.length} 条</Descriptions.Item>
           </Descriptions>

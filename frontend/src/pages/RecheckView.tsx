@@ -70,14 +70,23 @@ export default function RecheckView() {
     const next: RecheckDiff[] = allNos.map((treeNo) => {
       const b = baseMap.get(treeNo);
       const t = targetMap.get(treeNo);
-      const baseDbh = b?.dbhCm;
-      const targetDbh = t?.dbhCm;
+      // 未测（null）在比对表中按缺测处理，不参与生长量计算
+      const baseDbh = b?.dbhCm ?? undefined;
+      const targetDbh = t?.dbhCm ?? undefined;
       const dbhGrowth =
         baseDbh !== undefined && targetDbh !== undefined ? r2(targetDbh - baseDbh) : 0;
       const heightGrowth =
-        b && t ? r2(t.heightM - b.heightM) : 0;
+        b?.heightM !== undefined && b.heightM !== null && t?.heightM !== undefined && t.heightM !== null
+          ? r2(t.heightM - b.heightM)
+          : 0;
       const statusChange = b && t && b.status !== t.status ? `${b.status} → ${t.status}` : '';
-      const missingReason = !t ? '本期未复测（疑似采伐或倒伏）' : !b ? '本期新增进界木' : '';
+      const missingReason = !t
+        ? '本期未复测（疑似采伐或倒伏）'
+        : !b
+          ? '本期新增进界木'
+          : t.dbhCm === null || t.heightM === null
+            ? '本期已带入，胸径/树高待补测'
+            : '';
       return {
         id: newId('diff'),
         plotId: id,
@@ -87,8 +96,8 @@ export default function RecheckView() {
         species: t?.species ?? b?.species ?? '',
         baseDbhCm: baseDbh,
         targetDbhCm: targetDbh,
-        baseHeightM: b?.heightM,
-        targetHeightM: t?.heightM,
+        baseHeightM: b?.heightM ?? undefined,
+        targetHeightM: t?.heightM ?? undefined,
         dbhGrowth,
         heightGrowth,
         statusChange,

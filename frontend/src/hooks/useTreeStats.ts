@@ -2,21 +2,28 @@ import { useMemo } from 'react';
 import { usePlotStore } from '../stores/plotStore';
 import { useRegenStore } from '../stores/regenStore';
 import { useTreeStore } from '../stores/treeStore';
+import { isFullyMeasured } from '../types/tree';
 import {
   avgDbh,
   avgHeight,
   basalAreaPerHectare,
   diameterDistribution,
+  measuredAliveTrees,
   perHectareCount,
   regenDensity,
   totalBasalArea,
 } from '../utils/forestCalc';
 
 export interface TreeStats {
-  /** 已录样木株数（本期） */
+  /** 已录样木株数（本期，含待补测） */
   count: number;
+  /** 活立木株数（含待补测） */
   aliveCount: number;
-  /** 每公顷株数 */
+  /** 活立木中胸径与树高均已补测、计入林分汇总的株数 */
+  measuredCount: number;
+  /** 活立木中尚待补测（胸径或树高未测）的株数 */
+  pendingCount: number;
+  /** 每公顷株数（按已补测活立木） */
   perHa: number;
   /** 平均胸径 cm */
   meanDbh: number;
@@ -37,7 +44,8 @@ export interface TreeStats {
 
 /**
  * 算每公顷株数、平均胸径、断面积与径阶分布。
- * 被林分因子汇总页（/summary/:plotId）与复查比对页消费。
+ * 被林分因子汇总页（/summary/:plotId）与录入页速览消费。
+ * 由「开始下一期」带入、胸径/树高尚未补测的活立木不计入汇总指标。
  */
 export function useTreeStats(plotId: string | undefined, round?: number): TreeStats {
   const plots = usePlotStore((s) => s.items);
@@ -52,13 +60,16 @@ export function useTreeStats(plotId: string | undefined, round?: number): TreeSt
       .filter((t) => t.plotId === plotId && t.round === targetRound)
       .sort((a, b) => a.treeNo.localeCompare(b.treeNo, 'zh-Hans-CN', { numeric: true }));
     const alive = trees.filter((t) => t.status === '活立木');
+    const measuredAlive = measuredAliveTrees(trees).filter(isFullyMeasured);
     const area = plot?.area ?? 0;
     const plotRegens = regens.filter((r) => r.plotId === plotId && r.round === targetRound);
 
     return {
       count: trees.length,
       aliveCount: alive.length,
-      perHa: perHectareCount(alive.length, area),
+      measuredCount: measuredAlive.length,
+      pendingCount: alive.length - measuredAlive.length,
+      perHa: perHectareCount(measuredAlive.length, area),
       meanDbh: avgDbh(trees),
       meanHeight: avgHeight(trees),
       basalArea: totalBasalArea(trees),

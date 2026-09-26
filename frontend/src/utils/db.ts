@@ -77,6 +77,72 @@ export async function loadRecheckDiffs(plotId: string): Promise<RecheckDiff[]> {
   return rows.sort((a, b) => a.treeNo.localeCompare(b.treeNo));
 }
 
+/** 「开始下一期」结果：ok 为 false 时不产生任何新记录，reason 说明原因 */
+export interface NextRoundResult {
+  ok: boolean;
+  /** 新期次（失败时与当前期一致） */
+  targetRound: number;
+  /** 带入新期的待补测活立木株数 */
+  carried: number;
+  reason?: string;
+}
+
+/**
+ * 开始下一复查期：
+ * 把当前期（样地 surveyRound）的活立木带入新一期，树号、树种、起源、位置等保留，
+ * 胸径与树高置空（未测），逐株补测后才计入林分汇总；上一期记录原样保留。
+ * 当前期没有活立木、或已经存在更高期次时拒绝执行。
+ */
+export async function startNextRound(plotId: string): Promise<NextRoundResult> {
+  const plot = await db.plots.get(plotId);
+  if (!plot) {
+    return { ok: false, targetRound: 1, carried: 0, reason: '未找到该样地（可能已被删除）' };
+  }
+  const sourceRound = plot.surveyRound;
+  const targetRound = sourceRound + 1;
+
+  const plotTrees = await db.trees.where('plotId').equals(plotId).toArray();
+  const maxRound = plotTrees.reduce((m, t) => Math.max(m, t.round), 0);
+
+  // 已经有更高期次（例如重复点击或已开过新期）→ 不重复产生记录
+  if (maxRound > sourceRound) {
+    return {
+      ok: false,
+      targetRound: sourceRound,
+      carried: 0,
+      reason: `该样地已存在第 ${maxRound} 期的样木记录（高于当前第 ${sourceRound} 期），请切换到最新期次补测，不能重复开新期`,
+    };
+  }
+
+  const aliveTrees = plotTrees.filter((t) => t.round === sourceRound && t.status === '活立木');
+  if (aliveTrees.length === 0) {
+    return {
+      ok: false,
+      targetRound: sourceRound,
+      carried: 0,
+      reason: `第 ${sourceRound} 期没有活立木记录，无法带入下一期；请先在本期录入活立木`,
+    };
+  }
+
+  const now = Date.now();
+  const carried: TreeRecord[] = aliveTrees.map((t) => ({
+    ...t,
+    id: newId('tree'),
+    // 树号、树种、起源、位置（remark）及冠幅等属性保留，胸径、树高先记为未测
+    dbhCm: null,
+    heightM: null,
+    round: targetRound,
+    measuredAt: now,
+  }));
+
+  await db.transaction('rw', db.plots, db.trees, async () => {
+    await db.trees.bulkPut(carried);
+    await db.plots.update(plotId, { surveyRound: targetRound });
+  });
+
+  return { ok: true, targetRound, carried: carried.length };
+}
+
 /** 首次进入灌入示范样地与两期样木数据 */
 export async function ensureSeedData(): Promise<void> {
   const count = await db.plots.count();
